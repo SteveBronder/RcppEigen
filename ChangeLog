@@ -1,3 +1,28 @@
+2026-03-03  Steve Bronder  <sbronder@flatironinstitute.org>
+
+	* DESCRIPTION (Version, Date): Development version bump for Eigen
+	5.0.2 integration branch.
+	* inst/include/Eigen/: Sync with upstream Eigen proposed-release/5.0.2
+	at commit 842f7425b5e8d5cb73547e83bdd742b07d3ee4c7.
+	* inst/include/unsupported/Eigen/: Idem.
+	* inst/include/Eigen/CholmodSupport: Use RcppEigenCholmod indirection.
+	* inst/include/Eigen/src/CholmodSupport/CholmodSupport.h: Apply
+	R_MATRIX_CHOLMOD compatibility updates and disable SuiteSparse_long
+	call sites for R builds.
+	* inst/include/Eigen/src/Core/util/DisableStupidWarnings.h: Keep
+	warning suppression patching used by RcppEigen integration.
+	* inst/include/RcppEigenForward.h: Disable deprecated
+	MappedSparseMatrix exporter declarations.
+	* inst/include/RcppEigenWrap.h: Disable deprecated
+	MappedSparseMatrix exporters.
+	* inst/tinytest/cpp/rcppeigen.cpp: Use Map<SparseMatrix<...>>
+	form.
+	* inst/tinytest/cpp/sparse.cpp: Disable deprecated sparse map tests.
+	* inst/tinytest/test_sparse.R: Disable deprecated sparse map checks.
+	* src/fastLm.cpp: Update JacobiSVD constructor form.
+	* README.md: Update Eigen project URLs.
+	* man/fastLm.Rd: Update Eigen project URL.
+
 2026-01-15  Dirk Eddelbuettel  <edd@debian.org>
 
 	* .github/workflows/ci.yaml: Switch to actions/checkout@v6
