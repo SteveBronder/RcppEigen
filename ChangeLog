@@ -22,6 +22,8 @@
 	* src/fastLm.cpp: Update JacobiSVD constructor form.
 	* README.md: Update Eigen project URLs.
 	* man/fastLm.Rd: Update Eigen project URL.
+	* patches/eigen-5.0.2.diff: Summary of local compatibility changes
+	applied to vendored Eigen 5.0.2 sources.
 
 2026-01-15  Dirk Eddelbuettel  <edd@debian.org>
 
