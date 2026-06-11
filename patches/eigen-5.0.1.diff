@@ -220,3 +220,337 @@ diff '--exclude=CMakeLists.txt' -ruw ../eigen/unsupported/Eigen/src/SparseExtra/
        //         struct stat st_buf;
        //         stat (curfile.c_str(), &st_buf);
        //         if (S_ISDIR(st_buf.st_mode)) continue;
+diff '--exclude=CMakeLists.txt' -ruw ../eigen/Eigen/src/Core/Fill.h inst/include/Eigen/src/Core/Fill.h
+--- ../eigen/Eigen/src/Core/Fill.h	2026-06-11 13:55:31.681005252 -0400
++++ inst/include/Eigen/src/Core/Fill.h	2026-06-11 12:59:27.513738825 -0400
+@@ -94,7 +94,7 @@
+ template <typename Xpr>
+ struct eigen_memset_helper {
+   static constexpr bool value =
+-      std::is_trivially_copyable<typename Xpr::Scalar>::value && eigen_fill_helper<Xpr>::value;
++      std::is_trivially_copyable<typename Xpr::Scalar>::value && eigen_fill_helper<Xpr>::value && !NumTraits<Xpr>::RequireInitialization;
+ };
+ 
+ template <typename Xpr>
+diff '--exclude=CMakeLists.txt' -ruw ../eigen/Eigen/src/Core/arch/AVX/TypeCasting.h inst/include/Eigen/src/Core/arch/AVX/TypeCasting.h
+--- ../eigen/Eigen/src/Core/arch/AVX/TypeCasting.h	2026-06-11 13:55:31.696005428 -0400
++++ inst/include/Eigen/src/Core/arch/AVX/TypeCasting.h	2026-06-11 13:00:01.931139518 -0400
+@@ -56,6 +56,40 @@
+ #endif
+ #endif
+ 
++EIGEN_STRONG_INLINE __m256 eigen_mm256_set_m128(__m128 hi, __m128 lo) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 810
++  __m256 result = _mm256_castps128_ps256(lo);
++  return _mm256_insertf128_ps(result, hi, 1);
++#else
++  return _mm256_set_m128(hi, lo);
++#endif
++}
++
++EIGEN_STRONG_INLINE __m256d eigen_mm256_set_m128d(__m128d hi, __m128d lo) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 810
++  __m256d result = _mm256_castpd128_pd256(lo);
++  return _mm256_insertf128_pd(result, hi, 1);
++#else
++  return _mm256_set_m128d(hi, lo);
++#endif
++}
++
++EIGEN_STRONG_INLINE __m256i eigen_mm256_set_m128i(__m128i hi, __m128i lo) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 810
++#if defined(EIGEN_VECTORIZE_AVX2)
++  __m256i result = _mm256_castsi128_si256(lo);
++  return _mm256_inserti128_si256(result, hi, 1);
++#else
++  EIGEN_ALIGN32 int32_t tmp[8];
++  _mm_storeu_si128(reinterpret_cast<__m128i*>(tmp), lo);
++  _mm_storeu_si128(reinterpret_cast<__m128i*>(tmp + 4), hi);
++  return _mm256_loadu_si256(reinterpret_cast<const __m256i*>(tmp));
++#endif
++#else
++  return _mm256_set_m128i(hi, lo);
++#endif
++}
++
+ template <>
+ EIGEN_STRONG_INLINE Packet16b pcast<Packet8f, Packet16b>(const Packet8f& a, const Packet8f& b) {
+   __m256 nonzero_a = _mm256_cmp_ps(a, pzero(a), _CMP_NEQ_UQ);
+@@ -109,7 +143,7 @@
+ 
+ template <>
+ EIGEN_STRONG_INLINE Packet8i pcast<Packet4d, Packet8i>(const Packet4d& a, const Packet4d& b) {
+-  return _mm256_set_m128i(_mm256_cvttpd_epi32(b), _mm256_cvttpd_epi32(a));
++  return eigen_mm256_set_m128i(_mm256_cvttpd_epi32(b), _mm256_cvttpd_epi32(a));
+ }
+ 
+ template <>
+@@ -124,7 +158,7 @@
+ 
+ template <>
+ EIGEN_STRONG_INLINE Packet8f pcast<Packet4d, Packet8f>(const Packet4d& a, const Packet4d& b) {
+-  return _mm256_set_m128(_mm256_cvtpd_ps(b), _mm256_cvtpd_ps(a));
++  return eigen_mm256_set_m128(_mm256_cvtpd_ps(b), _mm256_cvtpd_ps(a));
+ }
+ 
+ template <>
+@@ -249,7 +283,7 @@
+ 
+ template <>
+ EIGEN_STRONG_INLINE Packet4d pcast<Packet2l, Packet4d>(const Packet2l& a, const Packet2l& b) {
+-  return _mm256_set_m128d((pcast<Packet2l, Packet2d>(b)), (pcast<Packet2l, Packet2d>(a)));
++  return eigen_mm256_set_m128d((pcast<Packet2l, Packet2d>(b)), (pcast<Packet2l, Packet2d>(a)));
+ }
+ 
+ template <>
+diff '--exclude=CMakeLists.txt' -ruw ../eigen/Eigen/src/Core/arch/AVX512/TypeCasting.h inst/include/Eigen/src/Core/arch/AVX512/TypeCasting.h
+--- ../eigen/Eigen/src/Core/arch/AVX512/TypeCasting.h	2026-06-11 13:55:31.711005604 -0400
++++ inst/include/Eigen/src/Core/arch/AVX512/TypeCasting.h	2026-06-11 13:00:20.766358815 -0400
+@@ -52,9 +52,17 @@
+ template <>
+ struct type_casting_traits<float, bfloat16> : vectorized_type_casting_traits<float, bfloat16> {};
+ 
++EIGEN_STRONG_INLINE __mmask16 eigen_mm512_cmpneq_ps_mask(__m512 a, __m512 b) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 810
++  return _mm512_cmp_ps_mask(a, b, _CMP_NEQ_UQ);
++#else
++  return _mm512_cmpneq_ps_mask(a, b);
++#endif
++}
++
+ template <>
+ EIGEN_STRONG_INLINE Packet16b pcast<Packet16f, Packet16b>(const Packet16f& a) {
+-  __mmask16 mask = _mm512_cmpneq_ps_mask(a, pzero(a));
++  __mmask16 mask = eigen_mm512_cmpneq_ps_mask(a, pzero(a));
+   return _mm512_maskz_cvtepi32_epi8(mask, _mm512_set1_epi32(1));
+ }
+ 
+diff '--exclude=CMakeLists.txt' -ruw ../eigen/Eigen/src/Core/arch/AVX512/PacketMath.h inst/include/Eigen/src/Core/arch/AVX512/PacketMath.h
+--- ../eigen/Eigen/src/Core/arch/AVX512/PacketMath.h	2026-06-11 13:55:31.727005792 -0400
++++ inst/include/Eigen/src/Core/arch/AVX512/PacketMath.h	2026-06-11 13:01:11.609950724 -0400
+@@ -44,6 +44,54 @@
+ typedef eigen_packet_wrapper<__m256i, 6> Packet16s;
+ typedef eigen_packet_wrapper<__m128i, 6> Packet8s;
+ 
++EIGEN_STRONG_INLINE __m512i eigen_mm512_loadu_epi32(const int* from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  return _mm512_loadu_si512(reinterpret_cast<const void*>(from));
++#else
++  return _mm512_loadu_epi32(from);
++#endif
++}
++
++EIGEN_STRONG_INLINE __m512i eigen_mm512_loadu_epi64(const int64_t* from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  return _mm512_loadu_si512(reinterpret_cast<const void*>(from));
++#else
++  return _mm512_loadu_epi64(from);
++#endif
++}
++
++EIGEN_STRONG_INLINE void eigen_mm512_storeu_epi32(void* to, const __m512i& from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  _mm512_storeu_si512(to, from);
++#else
++  _mm512_storeu_epi32(to, from);
++#endif
++}
++
++EIGEN_STRONG_INLINE void eigen_mm512_storeu_epi64(void* to, const __m512i& from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  _mm512_storeu_si512(to, from);
++#else
++  _mm512_storeu_epi64(to, from);
++#endif
++}
++
++EIGEN_STRONG_INLINE void eigen_mm256_storeu_epi32(void* to, const __m256i& from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(to), from);
++#else
++  _mm256_storeu_epi32(to, from);
++#endif
++}
++
++EIGEN_STRONG_INLINE void eigen_mm_storeu_epi32(void* to, const __m128i& from) {
++#if EIGEN_COMP_GNUC && !EIGEN_COMP_CLANG && EIGEN_COMP_GNUC < 1010
++  _mm_storeu_si128(reinterpret_cast<__m128i*>(to), from);
++#else
++  _mm_storeu_epi32(to, from);
++#endif
++}
++
+ template <>
+ struct is_arithmetic<__m512> {
+   enum { value = true };
+@@ -1033,11 +1081,11 @@
+ }
+ template <>
+ EIGEN_STRONG_INLINE Packet16i ploadu<Packet16i>(const int* from) {
+-  EIGEN_DEBUG_UNALIGNED_LOAD return _mm512_loadu_epi32(from);
++  EIGEN_DEBUG_UNALIGNED_LOAD return eigen_mm512_loadu_epi32(from);
+ }
+ template <>
+ EIGEN_STRONG_INLINE Packet8l ploadu<Packet8l>(const int64_t* from) {
+-  EIGEN_DEBUG_UNALIGNED_LOAD return _mm512_loadu_epi64(from);
++  EIGEN_DEBUG_UNALIGNED_LOAD return eigen_mm512_loadu_epi64(from);
+ }
+ 
+ template <>
+@@ -1158,11 +1206,11 @@
+ }
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<int>(int* to, const Packet16i& from) {
+-  EIGEN_DEBUG_UNALIGNED_STORE _mm512_storeu_epi32(to, from);
++  EIGEN_DEBUG_UNALIGNED_STORE eigen_mm512_storeu_epi32(to, from);
+ }
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<int64_t>(int64_t* to, const Packet8l& from) {
+-  EIGEN_DEBUG_UNALIGNED_STORE _mm512_storeu_epi64(to, from);
++  EIGEN_DEBUG_UNALIGNED_STORE eigen_mm512_storeu_epi64(to, from);
+ }
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<float>(float* to, const Packet16f& from, uint16_t umask) {
+@@ -3019,19 +3067,19 @@
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<numext::int16_t, Packet32s>(numext::int16_t* out, const Packet32s& x) {
+   EIGEN_DEBUG_UNALIGNED_STORE
+-  _mm512_storeu_epi32(out, x);
++  eigen_mm512_storeu_epi32(out, x);
+ }
+ 
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<numext::int16_t, Packet16s>(numext::int16_t* out, const Packet16s& x) {
+   EIGEN_DEBUG_UNALIGNED_STORE
+-  _mm256_storeu_epi32(out, x);
++  eigen_mm256_storeu_epi32(out, x);
+ }
+ 
+ template <>
+ EIGEN_STRONG_INLINE void pstoreu<numext::int16_t, Packet8s>(numext::int16_t* out, const Packet8s& x) {
+   EIGEN_DEBUG_UNALIGNED_STORE
+-  _mm_storeu_epi32(out, x);
++  eigen_mm_storeu_epi32(out, x);
+ }
+ 
+ template <>
+diff '--exclude=CMakeLists.txt' -ruw ../eigen/Eigen/src/Core/CoreEvaluators.h inst/include/Eigen/src/Core/CoreEvaluators.h
+--- ../eigen/Eigen/src/Core/CoreEvaluators.h	2026-06-11 13:55:31.743005979 -0400
++++ inst/include/Eigen/src/Core/CoreEvaluators.h	2026-06-11 13:36:32.544609667 -0400
+@@ -1048,6 +1048,116 @@
+   Data m_d;
+ };
+ 
++// RcppEigen patch: restore Eigen 3.x lazy `select()` semantics in the scalar
++// coefficient path. Eigen 5 evaluates `select` as a CwiseTernaryOp whose
++// evaluator computes the then-branch, else-branch and condition coefficients
++// eagerly before applying the `cond == 0 ? b : a` functor. For plain arithmetic
++// scalars the discarded branch is harmless dead arithmetic, but for scalar
++// types whose coefficient evaluation has observable side effects (e.g.
++// reverse-mode autodiff scalars, which allocate on a tape) evaluating the
++// unselected branch is incorrect: an orphan node whose chain rule multiplies
++// its adjoint by a value-derived quantity can inject `0 * INF = NaN` into a
++// live input. This specialization overrides only `coeff()` to evaluate the
++// chosen branch alone (as Eigen 3.x's `Select` did), while keeping the eager,
++// fully vectorized packet path and Flags identical to the general ternary
++// evaluator. The packet path is only ever instantiated for scalar types that
++// advertise `functor_traits<...>::PacketAccess` (built-ins such as
++// double/float), so vectorized select for those is untouched; non-vectorizable
++// scalars (var/fvar and similar) never set PacketAccessBit and are assigned via
++// the lazy `coeff()` path exclusively. Backported from the stan-math
++// `lazy_select_evaluator`. This also intercepts the fused `(a < b).select(c, d)`
++// evaluator below, which derives from `ternary_evaluator<XprType>` after
++// rebuilding the expression. It differs from the general IndexBased/IndexBased
++// ternary_evaluator only in the functor position, so it is unambiguously more
++// specialized.
++template <typename Scalar, typename CondScalar, typename Arg1, typename Arg2, typename Arg3>
++struct ternary_evaluator<CwiseTernaryOp<scalar_boolean_select_op<Scalar, Scalar, CondScalar>, Arg1, Arg2, Arg3>,
++                         IndexBased, IndexBased>
++    : evaluator_base<CwiseTernaryOp<scalar_boolean_select_op<Scalar, Scalar, CondScalar>, Arg1, Arg2, Arg3>> {
++  typedef scalar_boolean_select_op<Scalar, Scalar, CondScalar> TernaryOp;
++  typedef CwiseTernaryOp<TernaryOp, Arg1, Arg2, Arg3> XprType;
++
++  enum {
++    CoeffReadCost = int(evaluator<Arg1>::CoeffReadCost) + int(evaluator<Arg2>::CoeffReadCost) +
++                    int(evaluator<Arg3>::CoeffReadCost) + int(functor_traits<TernaryOp>::Cost),
++
++    Arg1Flags = evaluator<Arg1>::Flags,
++    Arg2Flags = evaluator<Arg2>::Flags,
++    Arg3Flags = evaluator<Arg3>::Flags,
++    SameType = is_same<typename Arg1::Scalar, typename Arg2::Scalar>::value &&
++               is_same<typename Arg1::Scalar, typename Arg3::Scalar>::value,
++    StorageOrdersAgree = (int(Arg1Flags) & RowMajorBit) == (int(Arg2Flags) & RowMajorBit) &&
++                         (int(Arg1Flags) & RowMajorBit) == (int(Arg3Flags) & RowMajorBit),
++    Flags0 = (int(Arg1Flags) | int(Arg2Flags) | int(Arg3Flags)) &
++             (HereditaryBits |
++              (int(Arg1Flags) & int(Arg2Flags) & int(Arg3Flags) &
++               ((StorageOrdersAgree ? LinearAccessBit : 0) |
++                (functor_traits<TernaryOp>::PacketAccess && StorageOrdersAgree && SameType ? PacketAccessBit : 0)))),
++    Flags = (Flags0 & ~RowMajorBit) | (Arg1Flags & RowMajorBit),
++    Alignment = plain_enum_min(plain_enum_min(evaluator<Arg1>::Alignment, evaluator<Arg2>::Alignment),
++                               evaluator<Arg3>::Alignment)
++  };
++
++  EIGEN_DEVICE_FUNC explicit ternary_evaluator(const XprType& xpr) : m_d(xpr) {
++    EIGEN_INTERNAL_CHECK_COST_VALUE(functor_traits<TernaryOp>::Cost);
++    EIGEN_INTERNAL_CHECK_COST_VALUE(CoeffReadCost);
++  }
++
++  typedef typename XprType::CoeffReturnType CoeffReturnType;
++
++  // Lazy: evaluate only the selected branch (Eigen 3.x Select semantics).
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE CoeffReturnType coeff(Index row, Index col) const {
++    return m_d.arg3Impl.coeff(row, col) == CondScalar(0) ? m_d.arg2Impl.coeff(row, col)
++                                                         : m_d.arg1Impl.coeff(row, col);
++  }
++
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE CoeffReturnType coeff(Index index) const {
++    return m_d.arg3Impl.coeff(index) == CondScalar(0) ? m_d.arg2Impl.coeff(index) : m_d.arg1Impl.coeff(index);
++  }
++
++  // Eager packet path, only instantiated for vectorizable scalar types.
++  template <int LoadMode, typename PacketType>
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packet(Index row, Index col) const {
++    return m_d.func().packetOp(m_d.arg1Impl.template packet<LoadMode, PacketType>(row, col),
++                               m_d.arg2Impl.template packet<LoadMode, PacketType>(row, col),
++                               m_d.arg3Impl.template packet<LoadMode, PacketType>(row, col));
++  }
++
++  template <int LoadMode, typename PacketType>
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packet(Index index) const {
++    return m_d.func().packetOp(m_d.arg1Impl.template packet<LoadMode, PacketType>(index),
++                               m_d.arg2Impl.template packet<LoadMode, PacketType>(index),
++                               m_d.arg3Impl.template packet<LoadMode, PacketType>(index));
++  }
++
++  template <int LoadMode, typename PacketType>
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packetSegment(Index row, Index col, Index begin, Index count) const {
++    return m_d.func().packetOp(m_d.arg1Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count),
++                               m_d.arg2Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count),
++                               m_d.arg3Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count));
++  }
++
++  template <int LoadMode, typename PacketType>
++  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packetSegment(Index index, Index begin, Index count) const {
++    return m_d.func().packetOp(m_d.arg1Impl.template packetSegment<LoadMode, PacketType>(index, begin, count),
++                               m_d.arg2Impl.template packetSegment<LoadMode, PacketType>(index, begin, count),
++                               m_d.arg3Impl.template packetSegment<LoadMode, PacketType>(index, begin, count));
++  }
++
++ protected:
++  struct Data {
++    EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Data(const XprType& xpr)
++        : op(xpr.functor()), arg1Impl(xpr.arg1()), arg2Impl(xpr.arg2()), arg3Impl(xpr.arg3()) {}
++    EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE const TernaryOp& func() const { return op; }
++    TernaryOp op;
++    evaluator<Arg1> arg1Impl;
++    evaluator<Arg2> arg2Impl;
++    evaluator<Arg3> arg3Impl;
++  };
++
++  Data m_d;
++};
++
+ template <typename Arg1, typename Arg2, typename Scalar, typename CmpLhsType, typename CmpRhsType, ComparisonName cmp>
+ struct scalar_boolean_select_spec {
+   using DummyTernaryOp = scalar_boolean_select_op<Scalar, Scalar, bool>;

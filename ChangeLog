@@ -1,3 +1,19 @@
+2026-06-11  Steve Bronder  <sbronder@flatironinstitute.org>
+
+	* DESCRIPTION (Version, Date): Roll minor version
+
+	* inst/include/Eigen/src/Core/CoreEvaluators.h: Backport stan-math lazy
+	'select()' evaluator; the scalar coeff() path now evaluates only the
+	selected branch (restoring Eigen 3.x Select semantics) while the eager
+	vectorized packet path is preserved for built-in scalars
+	* inst/include/Eigen/src/Core/Fill.h: Guard memset fill on
+	!NumTraits<Xpr>::RequireInitialization (from vendored stan-math Eigen)
+	* inst/include/Eigen/src/Core/arch/AVX/TypeCasting.h: Add GCC-intrinsic
+	compatibility wrappers (from vendored stan-math Eigen)
+	* inst/include/Eigen/src/Core/arch/AVX512/TypeCasting.h: Idem
+	* inst/include/Eigen/src/Core/arch/AVX512/PacketMath.h: Idem
+	* patches/eigen-5.0.1.diff: Record the above patches
+
 2026-06-04  Dirk Eddelbuettel  <edd@debian.org>
 
 	* inst/include/Eigen/: Sync with upstream Eigen 5.0.1

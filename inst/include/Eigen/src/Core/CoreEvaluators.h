@@ -1048,6 +1048,116 @@ struct ternary_evaluator<CwiseTernaryOp<TernaryOp, Arg1, Arg2, Arg3>, IndexBased
   Data m_d;
 };
 
+// RcppEigen patch: restore Eigen 3.x lazy `select()` semantics in the scalar
+// coefficient path. Eigen 5 evaluates `select` as a CwiseTernaryOp whose
+// evaluator computes the then-branch, else-branch and condition coefficients
+// eagerly before applying the `cond == 0 ? b : a` functor. For plain arithmetic
+// scalars the discarded branch is harmless dead arithmetic, but for scalar
+// types whose coefficient evaluation has observable side effects (e.g.
+// reverse-mode autodiff scalars, which allocate on a tape) evaluating the
+// unselected branch is incorrect: an orphan node whose chain rule multiplies
+// its adjoint by a value-derived quantity can inject `0 * INF = NaN` into a
+// live input. This specialization overrides only `coeff()` to evaluate the
+// chosen branch alone (as Eigen 3.x's `Select` did), while keeping the eager,
+// fully vectorized packet path and Flags identical to the general ternary
+// evaluator. The packet path is only ever instantiated for scalar types that
+// advertise `functor_traits<...>::PacketAccess` (built-ins such as
+// double/float), so vectorized select for those is untouched; non-vectorizable
+// scalars (var/fvar and similar) never set PacketAccessBit and are assigned via
+// the lazy `coeff()` path exclusively. Backported from the stan-math
+// `lazy_select_evaluator`. This also intercepts the fused `(a < b).select(c, d)`
+// evaluator below, which derives from `ternary_evaluator<XprType>` after
+// rebuilding the expression. It differs from the general IndexBased/IndexBased
+// ternary_evaluator only in the functor position, so it is unambiguously more
+// specialized.
+template <typename Scalar, typename CondScalar, typename Arg1, typename Arg2, typename Arg3>
+struct ternary_evaluator<CwiseTernaryOp<scalar_boolean_select_op<Scalar, Scalar, CondScalar>, Arg1, Arg2, Arg3>,
+                         IndexBased, IndexBased>
+    : evaluator_base<CwiseTernaryOp<scalar_boolean_select_op<Scalar, Scalar, CondScalar>, Arg1, Arg2, Arg3>> {
+  typedef scalar_boolean_select_op<Scalar, Scalar, CondScalar> TernaryOp;
+  typedef CwiseTernaryOp<TernaryOp, Arg1, Arg2, Arg3> XprType;
+
+  enum {
+    CoeffReadCost = int(evaluator<Arg1>::CoeffReadCost) + int(evaluator<Arg2>::CoeffReadCost) +
+                    int(evaluator<Arg3>::CoeffReadCost) + int(functor_traits<TernaryOp>::Cost),
+
+    Arg1Flags = evaluator<Arg1>::Flags,
+    Arg2Flags = evaluator<Arg2>::Flags,
+    Arg3Flags = evaluator<Arg3>::Flags,
+    SameType = is_same<typename Arg1::Scalar, typename Arg2::Scalar>::value &&
+               is_same<typename Arg1::Scalar, typename Arg3::Scalar>::value,
+    StorageOrdersAgree = (int(Arg1Flags) & RowMajorBit) == (int(Arg2Flags) & RowMajorBit) &&
+                         (int(Arg1Flags) & RowMajorBit) == (int(Arg3Flags) & RowMajorBit),
+    Flags0 = (int(Arg1Flags) | int(Arg2Flags) | int(Arg3Flags)) &
+             (HereditaryBits |
+              (int(Arg1Flags) & int(Arg2Flags) & int(Arg3Flags) &
+               ((StorageOrdersAgree ? LinearAccessBit : 0) |
+                (functor_traits<TernaryOp>::PacketAccess && StorageOrdersAgree && SameType ? PacketAccessBit : 0)))),
+    Flags = (Flags0 & ~RowMajorBit) | (Arg1Flags & RowMajorBit),
+    Alignment = plain_enum_min(plain_enum_min(evaluator<Arg1>::Alignment, evaluator<Arg2>::Alignment),
+                               evaluator<Arg3>::Alignment)
+  };
+
+  EIGEN_DEVICE_FUNC explicit ternary_evaluator(const XprType& xpr) : m_d(xpr) {
+    EIGEN_INTERNAL_CHECK_COST_VALUE(functor_traits<TernaryOp>::Cost);
+    EIGEN_INTERNAL_CHECK_COST_VALUE(CoeffReadCost);
+  }
+
+  typedef typename XprType::CoeffReturnType CoeffReturnType;
+
+  // Lazy: evaluate only the selected branch (Eigen 3.x Select semantics).
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE CoeffReturnType coeff(Index row, Index col) const {
+    return m_d.arg3Impl.coeff(row, col) == CondScalar(0) ? m_d.arg2Impl.coeff(row, col)
+                                                         : m_d.arg1Impl.coeff(row, col);
+  }
+
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE CoeffReturnType coeff(Index index) const {
+    return m_d.arg3Impl.coeff(index) == CondScalar(0) ? m_d.arg2Impl.coeff(index) : m_d.arg1Impl.coeff(index);
+  }
+
+  // Eager packet path, only instantiated for vectorizable scalar types.
+  template <int LoadMode, typename PacketType>
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packet(Index row, Index col) const {
+    return m_d.func().packetOp(m_d.arg1Impl.template packet<LoadMode, PacketType>(row, col),
+                               m_d.arg2Impl.template packet<LoadMode, PacketType>(row, col),
+                               m_d.arg3Impl.template packet<LoadMode, PacketType>(row, col));
+  }
+
+  template <int LoadMode, typename PacketType>
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packet(Index index) const {
+    return m_d.func().packetOp(m_d.arg1Impl.template packet<LoadMode, PacketType>(index),
+                               m_d.arg2Impl.template packet<LoadMode, PacketType>(index),
+                               m_d.arg3Impl.template packet<LoadMode, PacketType>(index));
+  }
+
+  template <int LoadMode, typename PacketType>
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packetSegment(Index row, Index col, Index begin, Index count) const {
+    return m_d.func().packetOp(m_d.arg1Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count),
+                               m_d.arg2Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count),
+                               m_d.arg3Impl.template packetSegment<LoadMode, PacketType>(row, col, begin, count));
+  }
+
+  template <int LoadMode, typename PacketType>
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketType packetSegment(Index index, Index begin, Index count) const {
+    return m_d.func().packetOp(m_d.arg1Impl.template packetSegment<LoadMode, PacketType>(index, begin, count),
+                               m_d.arg2Impl.template packetSegment<LoadMode, PacketType>(index, begin, count),
+                               m_d.arg3Impl.template packetSegment<LoadMode, PacketType>(index, begin, count));
+  }
+
+ protected:
+  struct Data {
+    EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Data(const XprType& xpr)
+        : op(xpr.functor()), arg1Impl(xpr.arg1()), arg2Impl(xpr.arg2()), arg3Impl(xpr.arg3()) {}
+    EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE const TernaryOp& func() const { return op; }
+    TernaryOp op;
+    evaluator<Arg1> arg1Impl;
+    evaluator<Arg2> arg2Impl;
+    evaluator<Arg3> arg3Impl;
+  };
+
+  Data m_d;
+};
+
 template <typename Arg1, typename Arg2, typename Scalar, typename CmpLhsType, typename CmpRhsType, ComparisonName cmp>
 struct scalar_boolean_select_spec {
   using DummyTernaryOp = scalar_boolean_select_op<Scalar, Scalar, bool>;
